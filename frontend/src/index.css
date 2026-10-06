@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces */
+  --color-bg: #050505;
+  --color-surface: #0f0f10;
+  --color-surface-2: #17171a;
+  --color-border: #26262b;
+
+  /* Text */
+  --color-fg: #e8e8ea;
+  --color-fg-muted: #8b8b94;
+
+  /* Brand */
+  --color-accent: #63a8f8;
+  --color-accent-fg: #04121f;      /* text on accent buttons */
+  --color-bubble-user: #173e76;
+
+  /* Status */
+  --color-danger: #f87171;
+  --color-warning: #fbbf24;
+
+  /* Glow (usable as shadow-glow / shadow-glow-lg) */
+  --shadow-glow: 0 0 16px rgb(99 168 248 / 0.45);
+  --shadow-glow-lg: 0 0 28px rgb(99 168 248 / 0.6);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim dark scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* Keyboard focus ring in accent color */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@theme {
+  --animate-fade-in: fade-in 150ms ease-out;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-toast-in: toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.96) translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
