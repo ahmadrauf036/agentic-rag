@@ -35,17 +35,6 @@ def init_db() -> None:
         """)
         conn.commit()
 
-def create_session(thread_id: str, user_id: str, selected_files: list[str], page: int | None, title: str) -> None:
-    now = datetime.now(timezone.utc)
-    with _get_connection() as conn:
-        conn.execute(
-            "INSERT INTO sessions (thread_id, user_id, title, selected_files, page, created_at, updated_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (thread_id, user_id, title, json.dumps(selected_files), page, now, now),
-        )
-        conn.commit()
-
-
 def get_session(thread_id: str, user_id: str) -> dict | None:
     """Only returns the session if it belongs to this user."""
     with _get_connection() as conn:
@@ -84,50 +73,74 @@ def touch_session(thread_id: str, user_id: str) -> None:
             (now, thread_id, user_id),
         )
         conn.commit()
-def pause_sessions_referencing_file(file_hash: str, reason: str) -> int:
-    """
-    Pause every session (across ALL users) whose selected_files includes
-    file_hash. Documents are now shared, so a single deletion can affect
-    many different users' sessions, not just the deleter's own.
-    """
-    with _get_connection() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE sessions
-            SET paused_reason = %s
-            WHERE selected_files @> %s::jsonb
-              AND paused_reason IS NULL
-            """,
-            (reason, json.dumps([file_hash])),
-        )
-        conn.commit()
-        return cursor.rowcount
+
     
 def delete_chat_history_for_thread(thread_id: str, user_id: str) -> None:
-    from retrieval.memory_store import get_memory_store
+    from retrieval.memory_retriever import get_memory_store
     memory_store = get_memory_store()
     memory_store._collection.delete(
         where={"$and": [{"source_thread_id": thread_id}, {"owner_id": user_id}]}
     )
 
-def unpause_sessions_referencing_file(file_hash: str) -> int:
-    """Unpause every session (across ALL users) referencing this file,
-    now that it exists again (re-uploaded by an admin)."""
-    with _get_connection() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE sessions
-            SET paused_reason = NULL
-            WHERE selected_files @> %s::jsonb
-              AND paused_reason IS NOT NULL
-            """,
-            (json.dumps([file_hash]),),
-        )
-        conn.commit()
-        return cursor.rowcount
+
 
 def list_all_sessions() -> list[dict]:
     """Admin-only: list every session across every user."""
     with _get_connection() as conn:
         rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
+        return [dict(r) for r in rows]
+    
+    
+def create_session(thread_id, user_id, org_id, selected_files, page, title) -> None:
+    now = datetime.now(timezone.utc)
+    with _get_connection() as conn:
+        conn.execute(
+            "INSERT INTO sessions (thread_id, user_id, org_id, title, selected_files, page, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (thread_id, user_id, org_id, title, json.dumps(selected_files), page, now, now),
+        )
+        conn.commit()
+
+
+def pause_sessions_referencing_file(org_id: str, file_hash: str, reason: str) -> int:
+    # Scoped to ONE org. Two orgs can hold identical files (same content, same
+    # hash); deleting in one org must never pause another org's chats.
+    with _get_connection() as conn:
+        cur = conn.execute(
+            """UPDATE sessions SET paused_reason = %s
+               WHERE org_id = %s AND selected_files @> %s::jsonb AND paused_reason IS NULL""",
+            (reason, org_id, json.dumps([file_hash])),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def unpause_sessions_referencing_file(org_id: str, file_hash: str) -> int:
+    with _get_connection() as conn:
+        cur = conn.execute(
+            """UPDATE sessions SET paused_reason = NULL
+               WHERE org_id = %s AND selected_files @> %s::jsonb AND paused_reason IS NOT NULL""",
+            (org_id, json.dumps([file_hash])),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def list_org_sessions(org_id: str) -> list[dict]:
+    """Org-admin view. Deliberately omits titles (they contain message text)."""
+    with _get_connection() as conn:
+        rows = conn.execute(
+            """SELECT thread_id, user_id, selected_files, page, paused_reason, created_at, updated_at
+               FROM sessions WHERE org_id = %s ORDER BY updated_at DESC""",
+            (org_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_dependent_sessions(org_id: str, file_hash: str) -> list[dict]:
+    with _get_connection() as conn:
+        rows = conn.execute(
+            "SELECT thread_id, user_id FROM sessions WHERE org_id = %s AND selected_files @> %s::jsonb",
+            (org_id, json.dumps([file_hash])),
+        ).fetchall()
         return [dict(r) for r in rows]

@@ -1,6 +1,6 @@
 import logging
 
-from retrieval.vectorstore import get_vector_store
+from retrieval.retriever import get_vector_store
 from retrieval.hybrid_retriever import hybrid_search
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,7 @@ def build_retriever(selected_files: list[str], page: int | None = None, k: int =
         search_kwargs={"k": k, "filter": where},
     )
 
-
-def search(selected_files: list[str], query: str, page: int | None = None, k: int = 3):
+def search(org_id: str, selected_files: list[str], query: str, page: int | None = None, k: int = 3):
     if len(selected_files) > 1:
-        page = None
-    if not query or not query.strip():
-        raise ValueError("query must not be empty")
-
-    from retrieval.hybrid_retriever import hybrid_search
-    return hybrid_search(query=query, selected_files=selected_files, page=page, k=k)
+        page = None  # page filtering only applies to single-document selections
+    return hybrid_search(org_id=org_id, query=query, selected_files=selected_files, page=page, k=k)

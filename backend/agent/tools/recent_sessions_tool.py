@@ -2,7 +2,7 @@ import logging
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
-
+from agent.context import TenantContext
 from db.sessions import list_sessions
 
 logger = logging.getLogger(__name__)
@@ -12,10 +12,10 @@ class RecentSessionsInput(BaseModel):
     pass  # no arguments needed — always just "list my recent chats"
 
 
-def make_recent_sessions_tool(owner_id: str) -> StructuredTool:
+def make_recent_sessions_tool(ctx: TenantContext) -> StructuredTool:
     def _run() -> str:
         try:
-            sessions = list_sessions(owner_id)
+            sessions = list_sessions(ctx.user_id)
             if not sessions:
                 return "You have no other chat sessions."
             lines = [

@@ -1,69 +1,39 @@
-from fastapi import APIRouter, Depends
-from core.auth import AuthenticatedUser, get_current_user, require_admin
-from retrieval.vectorstore import get_vector_store
-from db.sessions import pause_sessions_referencing_file
-import json
-from db.sessions import _get_connection
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from core.auth import AuthenticatedUser, get_current_user, require_org_admin
+from db.audit import log_action
+from db.documents import delete_document_row, get_document, list_documents
+from db.sessions import list_dependent_sessions, pause_sessions_referencing_file
+from retrieval.tenant_stores import get_docs_store
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.get("")
-def list_documents(user: AuthenticatedUser = Depends(get_current_user)):
-    """Any authenticated user can list the shared document library."""
-    vector_store = get_vector_store()
-    all_metadata = vector_store._collection.get(include=["metadatas"])["metadatas"]  # no owner_id filter
+def list_documents_route(user: AuthenticatedUser = Depends(get_current_user)):
+    return list_documents(user.org_id)
 
-    seen = {}
-    for meta in all_metadata:
-        h = meta["file_hash"]
-        if h not in seen:
-            seen[h] = {"source": meta["source"], "file_hash": h, "chunk_count": 0}
-        seen[h]["chunk_count"] += 1
-
-    return list(seen.values())
-
-from db.audit import log_action
 
 @router.delete("/{file_hash}")
-def delete_document(file_hash: str, user: AuthenticatedUser = Depends(require_admin)):
-    """Only admins can remove a shared document."""
-    vector_store = get_vector_store()
+def delete_document(file_hash: str, user: AuthenticatedUser = Depends(require_org_admin)):
+    doc = get_document(user.org_id, file_hash)
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
 
-    existing = vector_store._collection.get(
-        where={"file_hash": file_hash},
-        include=["metadatas"],
-        limit=1,
+    # Order matters: vectors first, then the registry row, then pause. A failure
+    # midway leaves the document still listed, so the admin can simply retry.
+    get_docs_store(user.org_id)._collection.delete(where={"file_hash": file_hash})
+    delete_document_row(user.org_id, file_hash)
+    paused = pause_sessions_referencing_file(
+        org_id=user.org_id, file_hash=file_hash,
+        reason=f'"{doc["source"]}" was deleted. This chat is paused and can no longer answer new questions.',
     )
-    source_name = existing["metadatas"][0]["source"] if existing["metadatas"] else "a document"
+    log_action(actor_id=user.user_id, actor_email=user.email, action="document_delete",
+               org_id=user.org_id, target=file_hash,
+               metadata={"source": doc["source"], "paused_sessions": paused})
+    return {"success": True, "detail": f"Deleted document {file_hash}", "paused_sessions": paused}
 
-    vector_store._collection.delete(where={"file_hash": file_hash})
 
-    # Pause EVERY session referencing this file, across ALL users —
-    # not just the admin's own. See Step 6 for the required fix.
-    paused_count = pause_sessions_referencing_file(file_hash=file_hash, reason=(
-        f'"{source_name}" was deleted. This chat is paused and can no longer answer new questions.'
-    ))
-    log_action(
-        actor_id=user.user_id,
-        actor_email=user.email,
-        action="document_delete",
-        target=file_hash,
-        metadata={"source": source_name, "paused_sessions": paused_count},
-    )
-
-    return {
-        "success": True,
-        "detail": f"Deleted document {file_hash}",
-        "paused_sessions": paused_count,
-    }
-    
-# api/routes/documents.py
 @router.get("/{file_hash}/dependents")
-def get_document_dependents(file_hash: str, admin: AuthenticatedUser = Depends(require_admin)):
-    with _get_connection() as conn:
-        rows = conn.execute(
-            "SELECT thread_id, user_id, title FROM sessions WHERE selected_files @> %s::jsonb",
-            (json.dumps([file_hash]),),
-        ).fetchall()
-        return [dict(r) for r in rows]
+def get_document_dependents(file_hash: str, user: AuthenticatedUser = Depends(require_org_admin)):
+    return list_dependent_sessions(user.org_id, file_hash)

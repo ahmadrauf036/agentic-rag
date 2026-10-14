@@ -16,7 +16,8 @@ from agent.tools.recent_messages_tool import recent_messages
 from agent.tools.recent_sessions_tool import make_recent_sessions_tool
 from config import SYSTEM_PROMPT
 from langchain_core.messages.utils import count_tokens_approximately 
-
+from factory import build_tools, build_agent
+from context import TenantContext
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -114,26 +115,11 @@ def _trim_current_turn(current_turn: list[BaseMessage]) -> list[BaseMessage]:
         allow_partial=False,
     )
     
-async def build_graph(
-    selected_files: list[str],
-    owner_id: str,
-    thread_id: str,
-    page: int | None = None,
-):
-    agent = build_agent(
-        selected_files=selected_files, owner_id=owner_id, thread_id=thread_id, page=page
-    )
-
-    doc_search_tool = make_doc_search_tool(
-        selected_files=selected_files, page=page
-    )
-    memory_search_tool = make_memory_search_tool(
-        owner_id=owner_id, current_thread_id=thread_id
-    )
-    recent_sessions_tool = make_recent_sessions_tool(owner_id=owner_id)
-
-    tools = [doc_search_tool, calculator_tool, memory_search_tool, recent_sessions_tool, recent_messages]
+async def build_graph(ctx: TenantContext, selected_files: list[str], page: int | None = None):
+    tools = build_tools(ctx, selected_files, page)
+    agent = build_agent(tools)
     tool_node = ToolNode(tools)
+    
 
     def call_agent(state: MessagesState) -> dict:
         older, current_turn = _split_current_turn(state["messages"])

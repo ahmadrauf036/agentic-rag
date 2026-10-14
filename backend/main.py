@@ -2,7 +2,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import health, ingestion, list_docs, chat, sessions, admin, usage
+from api.routes import health, ingestion, list_docs, chat, sessions, admin, usage, me, platform
 from db.sessions import init_db
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -37,3 +37,5 @@ app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(admin.router)
 app.include_router(usage.router) 
+app.include_router(me.router)
+app.include_router(platform.router)

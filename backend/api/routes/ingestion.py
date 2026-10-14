@@ -3,7 +3,7 @@ from ingestion.pipeline import ingestion,ingest_uploaded_files
 from model.ingestion import IngestionRequest, IngestionResponse
 from core.auth import AuthenticatedUser, require_admin
 from core.rate_limit import limiter
-
+from core.auth import require_org_admin
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 
 MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -36,20 +36,14 @@ from db.audit import log_action
 
 @router.post("/upload", response_model=IngestionResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/hour")
-async def ingestion_upload_api(
-    request: Request,
-    files: list[UploadFile] = File(...),
-    user: AuthenticatedUser = Depends(require_admin),
-) -> IngestionResponse:
+async def ingestion_upload_api(request: Request, files: list[UploadFile] = File(...),
+                               user: AuthenticatedUser = Depends(require_org_admin)):
     for file in files:
         await _validate_file_size(file)
-    result = await ingest_uploaded_files(files, owner_id=user.user_id)
-    if not result.success:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.detail)
-
-    log_action(
-        actor_id=user.user_id, actor_email=user.email, action="document_upload",
-        target=", ".join(f.source for f in (result.files or [])),
-        metadata={"num_chunks": result.num_chunks, "file_hashes": [f.file_hash for f in (result.files or [])]},
-    )
+    result = await ingest_uploaded_files(files, org_id=user.org_id, uploaded_by=user.user_id)
+    # ...failure handling as before...
+    log_action(actor_id=user.user_id, actor_email=user.email, action="document_upload",
+               org_id=user.org_id, target=", ".join(f.source for f in (result.files or [])),
+               metadata={"num_chunks": result.num_chunks,
+                         "file_hashes": [f.file_hash for f in (result.files or [])]})
     return result

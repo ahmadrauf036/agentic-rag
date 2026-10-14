@@ -35,14 +35,10 @@ def _extract_sources(results) -> list[dict]:
     return sources
 
 
-def make_doc_search_tool(
-    selected_files: list[str],
-    page: int | None = None,
-    k: int = 3,
-) -> StructuredTool:
+def make_doc_search_tool(org_id: str, selected_files: list[str], page: int | None = None, k: int = 3) -> StructuredTool:
     def _run(query: str):
         try:
-            results = search(selected_files=selected_files, query=query, page=page, k=k)
+            results = search(org_id=org_id, selected_files=selected_files, query=query, page=page, k=k)
             content = _format_results(results)
             artifact = _extract_sources(results)
             return content, artifact

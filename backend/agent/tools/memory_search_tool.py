@@ -2,6 +2,7 @@ import logging
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+from agent.context import TenantContext
 
 from retrieval.memory_retriever import search_chat_history
 
@@ -22,12 +23,11 @@ def _format_results(results) -> str:
     return "\n\n".join(parts)
 
 
-def make_memory_search_tool(owner_id: str, current_thread_id: str) -> StructuredTool:
+def make_memory_search_tool(ctx: TenantContext) -> StructuredTool:
     def _run(query: str) -> str:
         try:
-            results = search_chat_history(
-                query=query, owner_id=owner_id, exclude_thread_id=current_thread_id
-            )
+            results = search_chat_history(org_id=ctx.org_id, user_id=ctx.user_id,
+                                      query=query, exclude_thread_id=ctx.thread_id)
             return _format_results(results)
         except Exception as error:
             logger.exception("memory_search tool failed for query=%r", query)
